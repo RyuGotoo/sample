@@ -1,504 +1,366 @@
+from __future__ import annotations
+
 import argparse
-import sys
+import json
 import os
-from pathlib import Path
-from xml.etree import ElementTree as ET
 import re
-from typing import Optional, Set
+import sys
+import textwrap
+import xml.etree.ElementTree as ET
+from collections import defaultdict
+from functools import lru_cache
+from pathlib import Path
 
 
-def _norm_text(elem):
-    if elem is None:
+def _extract_text(node):
+    """Return normalized text content for the given XML node."""
+    if node is None:
         return ""
-    # Join all text within the element, collapsing whitespace
-    text = "".join(elem.itertext())
-    # Keep intentional single newlines but strip indentation
-    lines = [line.strip() for line in text.splitlines()]
-    # Collapse multiple blank lines
-    out = []
-    prev_blank = False
-    for ln in lines:
-        if ln:
-            out.append(ln)
-            prev_blank = False
-        else:
-            if not prev_blank:
-                out.append("")
-                prev_blank = True
-    return "\n".join(out).strip()
+    text = "".join(node.itertext())
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = textwrap.dedent(text)
+    text = text.strip()
+    if re.fullmatch(r"<[^<>]+>", text):
+        text = text[1:-1].strip()
+    return text
 
 
-def _bullets_from_textblock(text):
-    bullets = []
-    for line in text.splitlines():
-        s = line.strip()
-        if not s:
+def _collect_lines(text):
+    if not text:
+        return []
+    return [line.rstrip() for line in text.splitlines()]
+
+
+def function_to_markdown(root: ET.Element) -> str:
+    lines: list[str] = []
+
+    name = _extract_text(root.find("name"))
+    if name:
+        lines.append(f"# {name}")
+        lines.append("")
+
+    purpose = _extract_text(root.find("purpose"))
+    if purpose:
+        lines.append("## 目的")
+        lines.append("")
+        lines.extend(_collect_lines(purpose))
+        lines.append("")
+
+    summary = _extract_text(root.find("summary"))
+    if summary:
+        lines.append("## 概要")
+        lines.append("")
+        lines.extend(_collect_lines(summary))
+        lines.append("")
+
+    arguments = root.find("arguments")
+    args = arguments.findall("arg") if arguments is not None else []
+    if args:
+        lines.append("## 引数")
+        lines.append("")
+        for index, arg in enumerate(args, 1):
+            lines.append(f"### 引数 {index}")
+            name_text = _extract_text(arg.find("name"))
+            type_text = _extract_text(arg.find("type"))
+            description_text = _extract_text(arg.find("description"))
+            if name_text:
+                lines.append(f"- 名前: {name_text}")
+            if type_text:
+                lines.append(f"- 型: {type_text}")
+            if description_text:
+                lines.append(f"- 説明: {description_text}")
+            lines.append("")
+
+    return_value = root.find("return-value")
+    if return_value is not None:
+        return_type = _extract_text(return_value.find("type"))
+        return_description = _extract_text(return_value.find("description"))
+        if return_type or return_description:
+            lines.append("## 戻り値")
+            lines.append("")
+            if return_type:
+                lines.append(f"- 型: {return_type}")
+            if return_description:
+                lines.append(f"- 説明: {return_description}")
+            lines.append("")
+
+    remark_lines = _collect_lines(_extract_text(root.find("remarks")))
+    remarks = []
+    for remark in remark_lines:
+        cleaned = remark.strip()
+        if not cleaned:
             continue
-        if s.startswith("- "):
-            bullets.append(s[2:].strip())
+        if cleaned.startswith("- "):
+            remarks.append(cleaned)
+        elif cleaned.startswith("-"):
+            remarks.append(f"- {cleaned[1:].strip()}")
         else:
-            bullets.append(s)
-    return bullets
+            remarks.append(f"- {cleaned}")
+
+    if remarks:
+        lines.append("## 備考")
+        lines.append("")
+        for remark in remarks:
+            lines.append(remark)
+        lines.append("")
+
+    process_flow = root.find("process-flow")
+    steps = process_flow.findall("step") if process_flow is not None else []
+    processed_steps = [s for s in (_extract_text(step) for step in steps) if s]
+    if processed_steps:
+        lines.append("## 処理の流れ")
+        lines.append("")
+        for idx, step in enumerate(processed_steps, 1):
+            lines.append(f"{idx}. {step}")
+        lines.append("")
+
+    db_queries = root.find("database-queries")
+    queries = db_queries.findall("query") if db_queries is not None else []
+    if queries:
+        lines.append("## データベースクエリ")
+        lines.append("")
+        for index, query in enumerate(queries, 1):
+            lines.append(f"### クエリ {index}")
+            lines.append("")
+            desc = _extract_text(query.find("description")) or "不明"
+            pseudo_sql = _extract_text(query.find("pseudo-sql")) or "不明"
+            lines.append("説明:")
+            lines.append(desc)
+            lines.append("")
+            lines.append("擬似SQL:")
+            lines.append(pseudo_sql)
+            lines.append("")
+
+    while lines and lines[-1] == "":
+        lines.pop()
+
+    return "\n".join(lines)
 
 
-def _parse_xml_tolerant(xml_path: Path) -> ET.ElementTree:
-    """Parse XML, tolerating stray '&' by auto-escaping when needed."""
-    try:
-        return ET.parse(xml_path)
-    except ET.ParseError:
-        # Attempt to auto-escape bare ampersands
-        raw = xml_path.read_text(encoding="utf-8")
-        fixed = re.sub(r"&(?![a-zA-Z#0-9]+;)", "&amp;", raw)
-        return ET.ElementTree(ET.fromstring(fixed))
-
-
-def xml_to_markdown(
-    xml_path: Path,
-    analysis_graph=None,
-    func_id: Optional[str] = None,
-    docs_root: Optional[Path] = None,
-) -> str:
-    tree = _parse_xml_tolerant(xml_path)
+def parse_function(xml_path: Path) -> ET.Element:
+    tree = ET.parse(xml_path)
     root = tree.getroot()
     if root.tag != "function":
-        raise ValueError("Root element must be <function>")
-
-    name = _norm_text(root.find("name")) or "(名称未設定)"
-    purpose = _norm_text(root.find("purpose"))
-    summary = _norm_text(root.find("summary"))
-
-    # Arguments
-    args_md = []
-    args_el = root.find("arguments")
-    if args_el is not None:
-        for arg in args_el.findall("arg"):
-            aname = _norm_text(arg.find("name"))
-            atype = _norm_text(arg.find("type"))
-            adesc = _norm_text(arg.find("description"))
-            label = f"- {aname} ({atype}): {adesc}" if aname or atype or adesc else None
-            if label:
-                args_md.append(label)
-
-    # Return value
-    ret_el = root.find("return-value")
-    rtype = rdesc = ""
-    if ret_el is not None:
-        rtype = _norm_text(ret_el.find("type"))
-        rdesc = _norm_text(ret_el.find("description"))
-
-    # Remarks
-    remarks_el = root.find("remarks")
-    remarks_md = []
-    if remarks_el is not None:
-        rtext = _norm_text(remarks_el)
-        if rtext:
-            remarks_md = _bullets_from_textblock(rtext)
-
-    # Process flow
-    flow_el = root.find("process-flow")
-    steps_md = []
-    if flow_el is not None:
-        for step in flow_el.findall("step"):
-            descr = _norm_text(step.find("description"))
-            rationale = _norm_text(step.find("rationale"))
-            fname = _norm_text(step.find("function_name"))
-            line = None
-            if descr and rationale:
-                line = f"{descr} — {rationale}"
-            elif descr:
-                line = descr
-            elif rationale:
-                line = rationale
-            if line is None:
-                line = ""
-            if fname:
-                # Append function hint if present
-                line = (line + f" (関数: {fname})").strip()
-            if line:
-                steps_md.append(line)
-
-    # Database queries
-    dbq_el = root.find("database-queries")
-    queries = []
-    if dbq_el is not None:
-        for q in dbq_el.findall("query"):
-            qdesc = _norm_text(q.find("description"))
-            sql = _norm_text(q.find("pseudo-sql"))
-            if qdesc or sql:
-                queries.append((qdesc, sql))
-
-    # Build Markdown in Japanese headings
-    lines = []
-    lines.append(f"# {name}")
-
-    if purpose:
-        lines.append("")
-        lines.append("**目的**")
-        lines.append("")
-        lines.append(purpose)
-
-    if summary:
-        lines.append("")
-        lines.append("**概要**")
-        lines.append("")
-        # Keep original paragraphs without forced wrapping (better for CJK)
-        for para in summary.split("\n\n"):
-            lines.append(para)
-            lines.append("")
-        if lines and lines[-1] == "":
-            lines.pop()
-
-    if args_md:
-        lines.append("")
-        lines.append("**引数**")
-        for item in args_md:
-            lines.append(item)
-
-    if rtype or rdesc:
-        lines.append("")
-        lines.append("**戻り値**")
-        if rtype and rdesc:
-            lines.append(f"- 型: {rtype}")
-            lines.append(f"- 説明: {rdesc}")
-        elif rtype:
-            lines.append(f"- 型: {rtype}")
-        elif rdesc:
-            lines.append(f"- 説明: {rdesc}")
-
-    if remarks_md:
-        lines.append("")
-        lines.append("**注意事項**")
-        for r in remarks_md:
-            lines.append(f"- {r}")
-
-    if steps_md:
-        lines.append("")
-        lines.append("**処理の流れ**")
-        for i, s in enumerate(steps_md, 1):
-            lines.append(f"{i}. {s}")
-
-    if queries:
-        lines.append("")
-        lines.append("**データベースクエリ**")
-        for qdesc, sql in queries:
-            if qdesc:
-                lines.append(f"- 説明: {qdesc}")
-            if sql:
-                lines.append("  SQL:")
-                lines.append("  ```")
-                lines.append("  " + sql.replace("\n", "\n  "))
-                lines.append("  ```")
-
-    # Append call relationships (recursive trees) if analysis graph is available
-    if analysis_graph:
-        # Link builder preferring doc.md under docs_root
-        def _entry_link_by_id(fid: str) -> str:
-            entry = analysis_graph.id_to_entry.get(fid, {})
-            n = entry.get("name", "") or fid
-            fp = entry.get("file_path", "")
-            ln = entry.get("line_start")
-            ln_txt = f":{ln}" if isinstance(ln, int) else ""
-            if docs_root and n and fp:
-                parts = Path(fp).with_suffix("").parts
-                if parts and parts[0].endswith("-master"):
-                    parts = parts[1:]
-                target = Path(docs_root, *parts, n, "doc.md")
-                try:
-                    rel = os.path.relpath(target, start=xml_path.parent)
-                except Exception:
-                    rel = str(target)
-                return f"[{n}]({rel})"
-            if fp:
-                return f"[{n}]({fp}) — {fp}{ln_txt}"
-            return n
-
-        def _children(fid: str, direction: str) -> list[str]:
-            if direction == "callees":
-                return sorted(analysis_graph.calls_map.get(fid, ()))
-            else:
-                return sorted(analysis_graph.callers_map.get(fid, ()))
-
-        def _render_tree(
-            start_ids: Set[str],
-            direction: str,
-            max_depth: int = 8,
-            max_children: int = 30,
-        ) -> list[str]:
-            out: list[str] = []
-
-            def dfs(fid: str, depth: int, stack: list[str]):
-                indent = "  " * depth
-                label = _entry_link_by_id(fid)
-                if fid in stack:
-                    out.append(f"{indent}- {label} … (循環)")
-                    return
-                if depth >= max_depth:
-                    out.append(f"{indent}- {label} … (省略)")
-                    return
-                out.append(f"{indent}- {label}")
-                ch = _children(fid, direction)
-                if not ch:
-                    return
-                stack.append(fid)
-                for idx, cid in enumerate(ch):
-                    if idx >= max_children:
-                        out.append(f"{indent}  … (他 {len(ch) - max_children} 件省略)")
-                        break
-                    dfs(cid, depth + 1, stack)
-                stack.pop()
-
-            for sid in sorted(start_ids):
-                for cid in _children(sid, direction):
-                    dfs(cid, 0, [])
-            return out
-
-        # Determine starting ids
-        start_ids: Set[str] = set()
-        if func_id:
-            start_ids.add(func_id)
-        elif name:
-            start_ids = set(analysis_graph.name_to_ids.get(name, set()))
-
-        if start_ids:
-            callee_tree = _render_tree(start_ids, direction="callees")
-            if callee_tree:
-                lines.append("")
-                lines.append("**Callee**")
-                lines.extend(callee_tree)
-            caller_tree = _render_tree(start_ids, direction="callers")
-            if caller_tree:
-                lines.append("")
-                lines.append("**Caller**")
-                lines.extend(caller_tree)
-
-    return "\n".join(lines).rstrip() + "\n"
+        raise ValueError("ルート要素は <function> である必要があります。")
+    return root
 
 
-def _convert_one(input_xml: Path, output_path: Optional[Path], analysis_graph=None):
-    # Try to infer function id from sibling files like 'func_<id>'
-    inferred_id = None
+def convert(
+    xml_path: Path,
+    analysis: AnalysisIndex | None = None,
+    doc_lookup: dict[str, Path] | None = None,
+) -> str:
+    root = parse_function(xml_path)
+    markdown = function_to_markdown(root)
+    return _append_dependencies(markdown, xml_path, analysis, doc_lookup)
+
+
+class AnalysisIndex:
+    def __init__(
+        self, functions: dict[str, dict[str, object]], callers: dict[str, list[str]]
+    ):
+        self._functions = functions
+        self._callers = callers
+
+    @classmethod
+    def from_file(cls, path: Path) -> "AnalysisIndex":
+        with path.open("r", encoding="utf-8") as fp:
+            data = json.load(fp)
+        functions: dict[str, dict[str, object]] = {}
+        callers: dict[str, list[str]] = defaultdict(list)
+        for entry in data:
+            if entry.get("type") != "func":
+                continue
+            func_id = entry.get("id")
+            if not func_id:
+                continue
+            functions[func_id] = entry
+        for entry in functions.values():
+            for callee in entry.get("calls", []) or []:
+                if callee in functions:
+                    callers[callee].append(entry["id"])
+        return cls(functions, callers)
+
+    def get(self, func_id: str) -> dict[str, object] | None:
+        return self._functions.get(func_id)
+
+    def callers_of(self, func_id: str) -> list[dict[str, object]]:
+        return [
+            self._functions[cid]
+            for cid in self._callers.get(func_id, [])
+            if cid in self._functions
+        ]
+
+    def callees_of(self, func_id: str) -> list[dict[str, object]]:
+        func = self.get(func_id)
+        if not func:
+            return []
+        callees: list[dict[str, object]] = []
+        for callee in func.get("calls", []) or []:
+            info = self._functions.get(callee)
+            if info:
+                callees.append(info)
+        return callees
+
+
+def build_doc_lookup(root: Path) -> dict[str, Path]:
+    lookup: dict[str, Path] = {}
+    for func_marker in root.rglob("func_*"):
+        if func_marker.is_file():
+            lookup[func_marker.name] = func_marker.parent / "doc.md"
+    return lookup
+
+
+@lru_cache(maxsize=None)
+def _load_purpose_from_doc(doc_md_path: str) -> str:
+    doc_path = Path(doc_md_path)
+    doc_xml = doc_path.with_name("doc.xml")
+    if not doc_xml.exists():
+        return ""
     try:
-        for p in input_xml.parent.iterdir():
-            if p.is_file() and p.name.startswith("func_"):
-                inferred_id = p.name
-                break
-    except Exception:
-        inferred_id = None
-
-    # Infer docs_root using analysis info so that cross-links point to doc.md
-    docs_root = None
-    if analysis_graph and inferred_id:
-        entry = analysis_graph.id_to_entry.get(inferred_id)
-        if entry and entry.get("file_path") and entry.get("name"):
-            parts = Path(entry["file_path"]).with_suffix("").parts
-            if parts and parts[0].endswith("-master"):
-                parts = parts[1:]
-            subpath = Path(*parts) / entry["name"]
-            doc_dir = input_xml.parent
-            # Find ancestor 'root' such that root/subpath == doc_dir
-            for anc in [doc_dir, *doc_dir.parents]:
-                try:
-                    if (anc / subpath).resolve() == doc_dir.resolve():
-                        docs_root = anc
-                        break
-                except Exception:
-                    continue
-
-    md = xml_to_markdown(
-        input_xml,
-        analysis_graph=analysis_graph,
-        func_id=inferred_id,
-        docs_root=docs_root,
-    )
-    if output_path is None:
-        output_path = input_xml.with_suffix(".md")
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(md, encoding="utf-8")
-    elif str(output_path) == "-":
-        sys.stdout.write(md)
-    else:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(md, encoding="utf-8")
+        tree = ET.parse(doc_xml)
+    except ET.ParseError:
+        return ""
+    root = tree.getroot()
+    if root.tag != "function":
+        return ""
+    return _extract_text(root.find("purpose"))
 
 
-class AnalysisGraph:
-    def __init__(self, id_to_entry, name_to_ids, calls_map, callers_map):
-        self.id_to_entry = id_to_entry
-        self.name_to_ids = name_to_ids
-        self.calls_map = calls_map
-        self.callers_map = callers_map
-
-    def get_callers_callees_by_name(self, func_name: str):
-        ids = self.name_to_ids.get(func_name, set())
-        callees_ids = set()
-        callers_ids = set()
-        for fid in ids:
-            callees_ids.update(self.calls_map.get(fid, ()))
-            callers_ids.update(self.callers_map.get(fid, ()))
-        # Remove self-refs
-        callees_ids.difference_update(ids)
-        callers_ids.difference_update(ids)
-        callees = [self.id_to_entry.get(cid, {}) for cid in sorted(callees_ids)]
-        callers = [self.id_to_entry.get(cid, {}) for cid in sorted(callers_ids)]
-        return callers, callees
-
-    def get_callers_callees_by_id(self, fid: str):
-        callees_ids = set(self.calls_map.get(fid, ()))
-        callers_ids = set(self.callers_map.get(fid, ()))
-        # Remove self-refs
-        if fid in callees_ids:
-            callees_ids.remove(fid)
-        if fid in callers_ids:
-            callers_ids.remove(fid)
-        callees = [self.id_to_entry.get(cid, {}) for cid in sorted(callees_ids)]
-        callers = [self.id_to_entry.get(cid, {}) for cid in sorted(callers_ids)]
-        return callers, callees
+def _format_dependency_list(
+    current_dir: Path,
+    entries: list[dict[str, object]],
+    doc_lookup: dict[str, Path] | None,
+) -> list[str]:
+    if not entries:
+        return ["- なし"]
+    lines: list[str] = []
+    for entry in sorted(
+        entries,
+        key=lambda item: (
+            str(item.get("name")) if item.get("name") else item.get("id")
+        ),
+    ):
+        func_id = str(entry.get("id"))
+        name = str(entry.get("name") or func_id)
+        link = "#"
+        purpose = ""
+        if doc_lookup:
+            target = doc_lookup.get(func_id)
+            if target:
+                relative = os.path.relpath(target, current_dir)
+                link = Path(relative).as_posix()
+                purpose = _load_purpose_from_doc(str(target))
+        purpose = purpose or "（生成対象でないため情報なし）"
+        lines.append(f"- [{name} ({func_id})]({link}): {purpose}")
+    return lines
 
 
-_ANALYSIS_CACHE = {}
+def _append_dependencies(
+    markdown: str,
+    xml_path: Path,
+    analysis: AnalysisIndex | None,
+    doc_lookup: dict[str, Path] | None,
+) -> str:
+    if not analysis:
+        return markdown
+
+    func_id = None
+    for candidate in xml_path.parent.glob("func_*"):
+        if candidate.is_file():
+            func_id = candidate.name
+            break
+    if not func_id:
+        return markdown
+
+    if doc_lookup is not None and func_id not in doc_lookup:
+        doc_lookup[func_id] = xml_path.with_name("doc.md")
+
+    callers = analysis.callers_of(func_id)
+    callees = analysis.callees_of(func_id)
+
+    if not callers and not callees:
+        return markdown
+
+    current_dir = xml_path.parent
+    sections: list[str] = []
+    sections.append("## Caller")
+    sections.append("")
+    sections.extend(_format_dependency_list(current_dir, callers, doc_lookup))
+    sections.append("")
+    sections.append("## Callee")
+    sections.append("")
+    sections.extend(_format_dependency_list(current_dir, callees, doc_lookup))
+
+    return markdown + "\n\n" + "\n".join(sections)
 
 
-def load_analysis_graph(path: Path) -> Optional[AnalysisGraph]:
-    if not path.exists():
-        return None
-    key = str(path.resolve())
-    if key in _ANALYSIS_CACHE:
-        return _ANALYSIS_CACHE[key]
-    import json
-
-    with path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    # First pass: collect functions
-    id_to_entry = {}
-    name_to_ids = {}
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-        if item.get("type") != "func":
-            continue
-        fid = item.get("id")
-        if not fid or not str(fid).startswith("func_"):
-            continue
-        id_to_entry[fid] = {
-            "id": fid,
-            "name": item.get("name"),
-            "file_path": item.get("file_path"),
-            "line_start": item.get("line_start"),
-        }
-        n = item.get("name")
-        if n:
-            name_to_ids.setdefault(n, set()).add(fid)
-
-    # Second pass: build call maps
-    calls_map = {}
-    callers_map = {}
-    for item in data:
-        if not isinstance(item, dict) or item.get("type") != "func":
-            continue
-        src_id = item.get("id")
-        if src_id not in id_to_entry:
-            continue
-        raw_calls = item.get("calls") or []
-        tgt_ids = [c for c in raw_calls if c in id_to_entry]
-        if tgt_ids:
-            calls_map[src_id] = set(tgt_ids)
-            for t in tgt_ids:
-                callers_map.setdefault(t, set()).add(src_id)
-
-    graph = AnalysisGraph(id_to_entry, name_to_ids, calls_map, callers_map)
-    _ANALYSIS_CACHE[key] = graph
-    return graph
+def process_directory(
+    directory: Path,
+    analysis: AnalysisIndex | None,
+) -> list[Path]:
+    generated_paths: list[Path] = []
+    doc_lookup = build_doc_lookup(directory) if analysis else {}
+    for xml_path in directory.rglob("doc.xml"):
+        markdown = convert(xml_path, analysis=analysis, doc_lookup=doc_lookup)
+        output_path = xml_path.with_name("doc.md")
+        output_path.write_text(markdown, encoding="utf-8")
+        generated_paths.append(output_path)
+    return generated_paths
 
 
-def main(argv=None):
+def main():
     parser = argparse.ArgumentParser(
-        description="Convert XML function docs to Markdown (file or directory)"
+        description="XMLファイルまたはディレクトリ内のdoc.xmlをMarkdownに変換します。"
     )
     parser.add_argument(
         "path",
-        nargs="?",
         type=Path,
-        help="XML file or directory to process. If directory, searches recursively for 'doc.xml'",
+        help="入力XMLファイル、またはdoc.xmlを含むディレクトリのパス",
     )
     parser.add_argument(
-        "-i",
-        "--input",
+        "analysis",
         type=Path,
-        default=None,
-        help="Input XML file (ignored if 'path' is provided)",
+        nargs="?",
+        help="関数間依存関係を含む analysis_result.json のパス",
     )
     parser.add_argument(
         "-o",
         "--output",
         type=Path,
-        default=None,
-        help="Output Markdown file (file mode only). Default: same name as XML; use '-' for stdout",
+        help="入力が単一XMLファイルの場合の出力Markdownファイルのパス。省略時は標準出力に出力します。",
     )
-    parser.add_argument(
-        "-a",
-        "--analysis",
-        type=Path,
-        default=None,
-        help="Path to analysis_result.json for caller/callee links (default: auto-detect)",
-    )
-    args = parser.parse_args(argv)
+    args = parser.parse_args()
 
-    # Resolve analysis graph once
-    analysis_path = args.analysis
-    if analysis_path is None:
-        # Auto-detect common locations, robust to cwd being different from repo root
-        candidates = []
-        # 1) relative to current working directory
-        candidates += [
-            Path("output_ffmpeg_01/analysis_result.json"),
-            Path("analysis_result.json"),
-        ]
-        # 2) relative to script root (repo root = parent of this script's dir)
-        try:
-            script_root = Path(__file__).resolve().parent.parent
-            candidates += [
-                script_root / "output_ffmpeg_01/analysis_result.json",
-                script_root / "analysis_result.json",
-            ]
-        except Exception:
-            pass
-        # 3) walk up from cwd
-        try:
-            for base in [Path.cwd(), *Path.cwd().parents]:
-                candidates += [
-                    base / "output_ffmpeg_01/analysis_result.json",
-                    base / "analysis_result.json",
-                ]
-        except Exception:
-            pass
-        # pick first existing
-        for c in candidates:
-            if c.exists():
-                analysis_path = c
-                break
-    analysis_graph = load_analysis_graph(analysis_path) if analysis_path else None
+    target = args.path
+    analysis_index: AnalysisIndex | None = None
 
-    # Directory mode if 'path' is a directory
-    if args.path and args.path.is_dir():
-        if args.output not in (None,):
-            parser.error("-o/--output cannot be used with directory input")
-        count = 0
-        for xml_file in args.path.rglob("doc.xml"):
-            try:
-                _convert_one(xml_file, None, analysis_graph=analysis_graph)
-                count += 1
-            except Exception as e:
-                print(f"[WARN] Failed to convert {xml_file}: {e}", file=sys.stderr)
-        if count == 0:
-            print("[INFO] No 'doc.xml' files found.", file=sys.stderr)
+    if args.analysis:
+        if not args.analysis.exists():
+            parser.error(f"analysis_result.json が見つかりません: {args.analysis}")
+        analysis_index = AnalysisIndex.from_file(args.analysis)
+
+    if target.is_dir():
+        if args.output:
+            parser.error("ディレクトリを指定した場合、--output は使用できません。")
+        generated_paths = process_directory(target, analysis_index)
+        if not generated_paths:
+            print("doc.xml が見つかりませんでした。", file=sys.stderr)
+        else:
+            for output_path in generated_paths:
+                print(f"生成しました: {output_path}")
         return
 
-    # Single-file mode
-    input_path = args.path or args.input or Path("sample.xml")
-    if not input_path.exists():
-        parser.error(f"Input XML not found: {input_path}")
-    _convert_one(input_path, args.output, analysis_graph=analysis_graph)
+    if not target.exists():
+        parser.error(f"指定されたパスが存在しません: {target}")
+
+    doc_lookup = build_doc_lookup(target.parent) if analysis_index else None
+    markdown = convert(target, analysis=analysis_index, doc_lookup=doc_lookup)
+
+    if args.output:
+        args.output.write_text(markdown, encoding="utf-8")
+    else:
+        print(markdown)
 
 
 if __name__ == "__main__":
