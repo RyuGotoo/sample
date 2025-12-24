@@ -1,0 +1,264 @@
+{
+  "domain": "認証 (authentication)",
+  "target": "/Users/ah000132/Documents/JRI_FOX/doc-generator/nginx-master",
+  "files": [
+    {
+      "path": "src/http/modules/ngx_http_auth_basic_module.c",
+      "score": 1.0,
+      "methods": ["keyword", "glob", "symbol"],
+      "matched_keywords": ["auth", "password", "realm", "base64", "crypt", "login"],
+      "category": "HTTP Basic認証モジュール"
+    },
+    {
+      "path": "src/http/modules/ngx_http_auth_request_module.c",
+      "score": 0.95,
+      "methods": ["keyword", "glob", "symbol"],
+      "matched_keywords": ["auth", "request"],
+      "category": "サブリクエスト認証モジュール"
+    },
+    {
+      "path": "src/http/modules/ngx_http_access_module.c",
+      "score": 0.90,
+      "methods": ["keyword", "glob", "symbol"],
+      "matched_keywords": ["access", "allow", "deny", "403"],
+      "category": "IPベースアクセス制御モジュール"
+    },
+    {
+      "path": "src/core/ngx_crypt.c",
+      "score": 0.88,
+      "methods": ["keyword", "reference"],
+      "matched_keywords": ["crypt", "password", "md5", "sha1"],
+      "category": "パスワード暗号化"
+    },
+    {
+      "path": "src/core/ngx_crypt.h",
+      "score": 0.85,
+      "methods": ["keyword", "reference"],
+      "matched_keywords": ["crypt"],
+      "category": "パスワード暗号化ヘッダ"
+    },
+    {
+      "path": "src/mail/ngx_mail_auth_http_module.c",
+      "score": 0.85,
+      "methods": ["keyword", "glob"],
+      "matched_keywords": ["auth", "password", "login"],
+      "category": "メール認証HTTPモジュール"
+    },
+    {
+      "path": "src/mail/ngx_mail_handler.c",
+      "score": 0.82,
+      "methods": ["keyword", "reference"],
+      "matched_keywords": ["auth", "password", "login", "crypt"],
+      "category": "メール認証ハンドラ"
+    },
+    {
+      "path": "src/stream/ngx_stream_access_module.c",
+      "score": 0.80,
+      "methods": ["keyword", "glob"],
+      "matched_keywords": ["access", "allow", "deny"],
+      "category": "ストリームアクセス制御"
+    },
+    {
+      "path": "src/http/ngx_http_core_module.c",
+      "score": 0.78,
+      "methods": ["keyword", "reference"],
+      "matched_keywords": ["auth", "satisfy", "access", "401", "403"],
+      "category": "HTTPコア（satisfy設定）"
+    },
+    {
+      "path": "src/http/ngx_http_core_module.h",
+      "score": 0.75,
+      "methods": ["keyword", "reference"],
+      "matched_keywords": ["auth", "satisfy"],
+      "category": "HTTPコアヘッダ"
+    },
+    {
+      "path": "src/http/ngx_http_request.c",
+      "score": 0.72,
+      "methods": ["keyword"],
+      "matched_keywords": ["auth", "password", "401"],
+      "category": "HTTPリクエスト処理"
+    },
+    {
+      "path": "src/http/ngx_http_request.h",
+      "score": 0.70,
+      "methods": ["keyword"],
+      "matched_keywords": ["auth", "password", "401", "403"],
+      "category": "HTTPリクエストヘッダ"
+    },
+    {
+      "path": "src/http/ngx_http_special_response.c",
+      "score": 0.70,
+      "methods": ["keyword"],
+      "matched_keywords": ["401", "403", "unauthorized", "forbidden"],
+      "category": "エラーレスポンス生成"
+    },
+    {
+      "path": "src/http/ngx_http_header_filter_module.c",
+      "score": 0.68,
+      "methods": ["keyword"],
+      "matched_keywords": ["auth", "401", "403"],
+      "category": "ヘッダフィルタ"
+    },
+    {
+      "path": "src/http/ngx_http_variables.c",
+      "score": 0.65,
+      "methods": ["keyword", "reference"],
+      "matched_keywords": ["auth"],
+      "category": "HTTP変数（認証関連）"
+    },
+    {
+      "path": "src/event/ngx_event_openssl.c",
+      "score": 0.65,
+      "methods": ["keyword"],
+      "matched_keywords": ["password", "crypt", "md5", "sha1", "base64"],
+      "category": "SSL/TLS認証"
+    },
+    {
+      "path": "src/event/ngx_event_openssl.h",
+      "score": 0.62,
+      "methods": ["keyword"],
+      "matched_keywords": ["password"],
+      "category": "SSL/TLSヘッダ"
+    },
+    {
+      "path": "src/http/modules/ngx_http_ssl_module.c",
+      "score": 0.60,
+      "methods": ["keyword"],
+      "matched_keywords": ["password", "ssl"],
+      "category": "HTTP SSLモジュール"
+    },
+    {
+      "path": "src/http/modules/ngx_http_secure_link_module.c",
+      "score": 0.58,
+      "methods": ["keyword", "reference"],
+      "matched_keywords": ["md5", "base64"],
+      "category": "セキュアリンク"
+    },
+    {
+      "path": "src/mail/ngx_mail_smtp_handler.c",
+      "score": 0.75,
+      "methods": ["keyword"],
+      "matched_keywords": ["auth", "password", "login", "base64"],
+      "category": "SMTP認証ハンドラ"
+    },
+    {
+      "path": "src/mail/ngx_mail_pop3_handler.c",
+      "score": 0.72,
+      "methods": ["keyword"],
+      "matched_keywords": ["auth", "password", "login"],
+      "category": "POP3認証ハンドラ"
+    },
+    {
+      "path": "src/mail/ngx_mail_imap_handler.c",
+      "score": 0.72,
+      "methods": ["keyword"],
+      "matched_keywords": ["auth", "login"],
+      "category": "IMAP認証ハンドラ"
+    },
+    {
+      "path": "src/mail/ngx_mail.h",
+      "score": 0.68,
+      "methods": ["keyword"],
+      "matched_keywords": ["auth", "password", "login"],
+      "category": "メールコアヘッダ"
+    },
+    {
+      "path": "src/mail/ngx_mail_smtp_module.c",
+      "score": 0.65,
+      "methods": ["keyword"],
+      "matched_keywords": ["auth", "login"],
+      "category": "SMTPモジュール"
+    },
+    {
+      "path": "src/mail/ngx_mail_pop3_module.c",
+      "score": 0.62,
+      "methods": ["keyword"],
+      "matched_keywords": ["auth"],
+      "category": "POP3モジュール"
+    },
+    {
+      "path": "src/mail/ngx_mail_imap_module.c",
+      "score": 0.62,
+      "methods": ["keyword"],
+      "matched_keywords": ["auth", "login"],
+      "category": "IMAPモジュール"
+    },
+    {
+      "path": "src/core/ngx_string.c",
+      "score": 0.55,
+      "methods": ["keyword", "reference"],
+      "matched_keywords": ["base64"],
+      "category": "Base64エンコード/デコード"
+    },
+    {
+      "path": "src/core/ngx_string.h",
+      "score": 0.52,
+      "methods": ["keyword", "reference"],
+      "matched_keywords": ["base64"],
+      "category": "文字列処理ヘッダ"
+    },
+    {
+      "path": "src/core/ngx_md5.c",
+      "score": 0.50,
+      "methods": ["keyword"],
+      "matched_keywords": ["md5"],
+      "category": "MD5ハッシュ"
+    },
+    {
+      "path": "src/core/ngx_sha1.c",
+      "score": 0.50,
+      "methods": ["keyword"],
+      "matched_keywords": ["sha1"],
+      "category": "SHA1ハッシュ"
+    },
+    {
+      "path": "src/http/ngx_http_upstream.c",
+      "score": 0.48,
+      "methods": ["keyword"],
+      "matched_keywords": ["auth", "password", "realm"],
+      "category": "アップストリーム認証"
+    },
+    {
+      "path": "src/http/ngx_http_upstream.h",
+      "score": 0.45,
+      "methods": ["keyword"],
+      "matched_keywords": ["auth", "password"],
+      "category": "アップストリームヘッダ"
+    },
+    {
+      "path": "src/http/modules/ngx_http_proxy_module.c",
+      "score": 0.42,
+      "methods": ["keyword"],
+      "matched_keywords": ["auth", "password", "401", "403"],
+      "category": "プロキシ認証転送"
+    },
+    {
+      "path": "src/http/modules/ngx_http_userid_filter_module.c",
+      "score": 0.40,
+      "methods": ["keyword", "reference"],
+      "matched_keywords": ["md5", "base64"],
+      "category": "ユーザーID追跡"
+    }
+  ],
+  "search_history": [
+    {
+      "cycle": 1,
+      "keywords": ["auth", "authentication", "password", "passwd", "credential", "login", "access", "allow", "deny", "satisfy", "401", "403", "forbidden", "unauthorized", "realm", "WWW-Authenticate", "crypt", "md5", "sha1", "base64"],
+      "files_added": 34
+    }
+  ],
+  "summary": {
+    "total_files": 34,
+    "high_score_files": 8,
+    "categories": {
+      "HTTP認証モジュール": 3,
+      "暗号化基盤": 5,
+      "メール認証": 9,
+      "アクセス制御": 2,
+      "HTTPコア": 6,
+      "SSL/TLS": 3,
+      "その他": 6
+    }
+  }
+}
