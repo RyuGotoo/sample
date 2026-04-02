@@ -1,3 +1,8 @@
+```
+find -L "$TARGET" -type f \( -name "*.c" -o -name "*.C" -o -name "*.h" -o -name "*.H" \) | sed "s|^${TARGET}/||" | sort | uniq -d
+```
+
+
 FOX 進捗
 
 マニュアル to 業務資料
