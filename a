@@ -1,6 +1,7 @@
 # Convert-DocsToMarkdown.ps1
 # Usage: .\Convert-DocsToMarkdown.ps1 -DirPath "C:\path\to\docs"
 
+
 param (
     [Parameter(Mandatory = $true)]
     [string]$DirPath
