@@ -36,7 +36,11 @@ Write-Host "[init] Word started"
 
 try {
     # Collect .doc and .docx recursively
-    $Files = Get-ChildItem -Path $DirPath -Recurse -Include "*.doc", "*.docx"
+    # Exclude .docx files that have a corresponding .doc (will be handled via .doc path)
+    $Files = Get-ChildItem -Path $DirPath -Recurse -Include "*.doc", "*.docx" | Where-Object {
+        $_.Extension -ne ".docx" -or
+        -not (Test-Path ([System.IO.Path]::ChangeExtension($_.FullName, ".doc")))
+    }
     $Total = $Files.Count
     Write-Host "[scan] Found $Total file(s)"
     Write-Host ""
@@ -58,9 +62,12 @@ try {
             Write-Host "  -> [doc->docx] Converting via Word..."
 
             $Doc = $Word.Documents.Open($File.FullName)
-            # 16 = wdFormatXMLDocument (docx)
-            $Doc.SaveAs([ref]$DocxPath, [ref]16)
-            $Doc.Close()
+            try {
+                # 16 = wdFormatXMLDocument (docx)
+                $Doc.SaveAs([ref]$DocxPath, [ref]16)
+            } finally {
+                $Doc.Close()
+            }
             $CreatedDocx = $true
             Write-Host "  -> [doc->docx] Done: $DocxPath"
         } else {
