@@ -2,6 +2,7 @@
 # Usage: .\Convert-DocsToMarkdown.ps1 -DirPath "C:\path\to\docs"
 
 
+
 param (
     [Parameter(Mandatory = $true)]
     [string]$DirPath
@@ -54,12 +55,28 @@ try {
         $Index++
         Write-Host "[$Index/$Total] $($File.FullName)"
 
-        $DocxPath = $null
+        # Determine output .md path first
+        $DocxPath = if ($File.Extension -eq ".doc") {
+            [System.IO.Path]::ChangeExtension($File.FullName, ".docx")
+        } else {
+            $File.FullName
+        }
+        $RelPath = $DocxPath.Substring($DirPath.Length).TrimStart('\', '/')
+        $MdRelPath = [System.IO.Path]::ChangeExtension($RelPath, ".md")
+        $MdPath = Join-Path $OutDir $MdRelPath
+
+        # Skip if already converted
+        if (Test-Path $MdPath) {
+            Write-Host "  -> [skip] Already converted, skipping: $MdPath"
+            $SuccessCount++
+            Write-Host ""
+            continue
+        }
+
         $CreatedDocx = $false
 
         if ($File.Extension -eq ".doc") {
             # .doc -> .docx via Word
-            $DocxPath = [System.IO.Path]::ChangeExtension($File.FullName, ".docx")
             Write-Host "  -> [doc->docx] Converting via Word..."
 
             $Doc = $Word.Documents.Open($File.FullName)
@@ -72,14 +89,8 @@ try {
             $CreatedDocx = $true
             Write-Host "  -> [doc->docx] Done: $DocxPath"
         } else {
-            $DocxPath = $File.FullName
             Write-Host "  -> [skip] Already .docx, no conversion needed"
         }
-
-        # .docx -> Markdown (GFM)
-        $RelPath = $DocxPath.Substring($DirPath.Length).TrimStart('\', '/')
-        $MdRelPath = [System.IO.Path]::ChangeExtension($RelPath, ".md")
-        $MdPath = Join-Path $OutDir $MdRelPath
 
         $MdDir = Split-Path $MdPath -Parent
         if (-not (Test-Path $MdDir)) {
