@@ -41,7 +41,7 @@ if not exist "%PROXY_DIR%\proxy_server2.py" (
     exit /b 1
 )
 
-start "proxy_server2" cmd /k ""C:\Program Files\Python39\python.exe" proxy_server2.py & pause"
+start "proxy_server2" /d "%PROXY_DIR%" cmd /k ""C:\Program Files\Python39\python.exe" proxy_server2.py"
 echo [OK] proxy_server2.py を起動しました。
 
 :: ============================================================
