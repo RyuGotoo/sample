@@ -1,0 +1,101 @@
+@echo off
+setlocal
+chcp 65001 >nul
+
+echo ===== セットアップ開始 =====
+
+set USER_HOME=C:\Users\tR13142
+
+:: ============================================================
+:: Step 1: Python 3.9 確認
+:: ============================================================
+echo.
+echo [Step 1] Python 3.9 を確認しています...
+"C:\Program Files\Python39\python.exe" --version >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [ERROR] Python 3.9 が起動できません: C:\Program Files\Python39\python.exe
+    echo 処理を中止します。
+    pause
+    exit /b 1
+)
+echo [OK] Python 3.9 を確認しました。
+
+:: ============================================================
+:: Step 2: proxy_server2.py を別ウィンドウで起動
+:: ============================================================
+echo.
+echo [Step 2] proxy_server2.py を起動します...
+
+set PROXY_DIR=%USER_HOME%\Documents\goto\llmcoe_sample\llmcoe_sample
+
+if not exist "%PROXY_DIR%" (
+    echo [ERROR] ディレクトリが見つかりません: %PROXY_DIR%
+    echo 処理を中止します。
+    pause
+    exit /b 1
+)
+if not exist "%PROXY_DIR%\proxy_server2.py" (
+    echo [ERROR] ファイルが見つかりません: %PROXY_DIR%\proxy_server2.py
+    echo 処理を中止します。
+    pause
+    exit /b 1
+)
+
+start "proxy_server2" cmd /k ""C:\Program Files\Python39\python.exe" proxy_server2.py & pause"
+echo [OK] proxy_server2.py を起動しました。
+
+:: ============================================================
+:: Step 3: skill-runner のコマンドプロンプトを起動
+:: ============================================================
+echo.
+echo [Step 3] skill-runner のコマンドプロンプトを開きます...
+
+set SKILL_DIR=%USER_HOME%\Documents\goto\skill-runner
+
+if not exist "%SKILL_DIR%" (
+    echo [ERROR] ディレクトリが見つかりません: %SKILL_DIR%
+    echo 処理を中止します。
+    pause
+    exit /b 1
+)
+
+start "skill-runner" cmd /k "cd /d "%SKILL_DIR%""
+echo [OK] skill-runner のコマンドプロンプトを開きました。
+
+:: ============================================================
+:: Step 4: エクスプローラを3つ起動
+:: ============================================================
+echo.
+echo [Step 4] エクスプローラを開きます...
+
+set OD_DIR=%USER_HOME%\OneDrive - SMBC Group\OD_func_docs_gen
+set DL_DIR=%USER_HOME%\Downloads
+set GOTO_DIR=%USER_HOME%\Documents\goto
+
+if not exist "%OD_DIR%" (
+    echo [ERROR] ディレクトリが見つかりません: %OD_DIR%
+    echo 処理を中止します。
+    pause
+    exit /b 1
+)
+if not exist "%DL_DIR%" (
+    echo [ERROR] ディレクトリが見つかりません: %DL_DIR%
+    echo 処理を中止します。
+    pause
+    exit /b 1
+)
+if not exist "%GOTO_DIR%" (
+    echo [ERROR] ディレクトリが見つかりません: %GOTO_DIR%
+    echo 処理を中止します。
+    pause
+    exit /b 1
+)
+
+explorer "%OD_DIR%"
+explorer "%DL_DIR%"
+explorer "%GOTO_DIR%"
+echo [OK] エクスプローラを3つ開きました。
+
+echo.
+echo ===== セットアップ完了 =====
+pause
