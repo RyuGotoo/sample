@@ -1,101 +1,71 @@
-@echo off
-setlocal
-chcp 65001 >nul
 
-echo ===== セットアップ開始 =====
+# Convert-DocsToMarkdown.ps1
+# Usage: .\Convert-DocsToMarkdown.ps1 -DirPath "C:\path\to\docs"
 
-set USER_HOME=C:\Users\tR13142
-
-:: ============================================================
-:: Step 1: Python 3.9 確認
-:: ============================================================
-echo.
-echo [Step 1] Python 3.9 を確認しています...
-"C:\Program Files\Python39\python.exe" --version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [ERROR] Python 3.9 が起動できません: C:\Program Files\Python39\python.exe
-    echo 処理を中止します。
-    pause
-    exit /b 1
-)
-echo [OK] Python 3.9 を確認しました。
-
-:: ============================================================
-:: Step 2: proxy_server2.py を別ウィンドウで起動
-:: ============================================================
-echo.
-echo [Step 2] proxy_server2.py を起動します...
-
-set PROXY_DIR=%USER_HOME%\Documents\goto\llmcoe_sample\llmcoe_sample
-
-if not exist "%PROXY_DIR%" (
-    echo [ERROR] ディレクトリが見つかりません: %PROXY_DIR%
-    echo 処理を中止します。
-    pause
-    exit /b 1
-)
-if not exist "%PROXY_DIR%\proxy_server2.py" (
-    echo [ERROR] ファイルが見つかりません: %PROXY_DIR%\proxy_server2.py
-    echo 処理を中止します。
-    pause
-    exit /b 1
+param (
+    [Parameter(Mandatory = $true)]
+    [string]$DirPath
 )
 
-start "proxy_server2" /d "%PROXY_DIR%" cmd /k ""C:\Program Files\Python39\python.exe" proxy_server2.py"
-echo [OK] proxy_server2.py を起動しました。
+# ===== 設定 =====
+$PandocExe = "C:\path\to\pandoc.exe"
+# ================
 
-:: ============================================================
-:: Step 3: skill-runner のコマンドプロンプトを起動
-:: ============================================================
-echo.
-echo [Step 3] skill-runner のコマンドプロンプトを開きます...
+if (-not (Test-Path $DirPath -PathType Container)) {
+    Write-Error "ディレクトリが見つかりません: $DirPath"
+    exit 1
+}
 
-set SKILL_DIR=%USER_HOME%\Documents\goto\skill-runner
+if (-not (Test-Path $PandocExe)) {
+    Write-Error "pandoc.exe が見つかりません: $PandocExe"
+    exit 1
+}
 
-if not exist "%SKILL_DIR%" (
-    echo [ERROR] ディレクトリが見つかりません: %SKILL_DIR%
-    echo 処理を中止します。
-    pause
-    exit /b 1
-)
+# Word COM オブジェクト初期化
+$Word = New-Object -ComObject Word.Application
+$Word.Visible = $false
 
-start "skill-runner" cmd /k "cd /d "%SKILL_DIR%""
-echo [OK] skill-runner のコマンドプロンプトを開きました。
+try {
+    # .doc と .docx を再帰的に取得
+    $Files = Get-ChildItem -Path $DirPath -Recurse -Include "*.doc", "*.docx"
 
-:: ============================================================
-:: Step 4: エクスプローラを3つ起動
-:: ============================================================
-echo.
-echo [Step 4] エクスプローラを開きます...
+    foreach ($File in $Files) {
+        $DocxPath = $null
+        $CreatedDocx = $false
 
-set OD_DIR=%USER_HOME%\OneDrive - SMBC Group\OD_func_docs_gen
-set DL_DIR=%USER_HOME%\Downloads
-set GOTO_DIR=%USER_HOME%\Documents\goto
+        if ($File.Extension -eq ".doc") {
+            # .doc → .docx 変換
+            $DocxPath = [System.IO.Path]::ChangeExtension($File.FullName, ".docx")
+            Write-Host "[doc→docx] $($File.FullName)"
 
-if not exist "%OD_DIR%" (
-    echo [ERROR] ディレクトリが見つかりません: %OD_DIR%
-    echo 処理を中止します。
-    pause
-    exit /b 1
-)
-if not exist "%DL_DIR%" (
-    echo [ERROR] ディレクトリが見つかりません: %DL_DIR%
-    echo 処理を中止します。
-    pause
-    exit /b 1
-)
-if not exist "%GOTO_DIR%" (
-    echo [ERROR] ディレクトリが見つかりません: %GOTO_DIR%
-    echo 処理を中止します。
-    pause
-    exit /b 1
-)
+            $Doc = $Word.Documents.Open($File.FullName)
+            # 16 = wdFormatXMLDocument (docx)
+            $Doc.SaveAs([ref]$DocxPath, [ref]16)
+            $Doc.Close()
+            $CreatedDocx = $true
+        } else {
+            # すでに .docx
+            $DocxPath = $File.FullName
+        }
 
-explorer "%OD_DIR%"
-explorer "%DL_DIR%"
-explorer "%GOTO_DIR%"
-echo [OK] エクスプローラを3つ開きました。
+        # .docx → Markdown (GFM)
+        $MdPath = [System.IO.Path]::ChangeExtension($DocxPath, ".md")
+        Write-Host "[docx→md] $DocxPath"
 
-echo.
-echo ===== セットアップ完了 =====
-pause
+        & $PandocExe $DocxPath -f docx -t gfm -o $MdPath
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "pandoc 変換失敗: $DocxPath"
+        }
+
+        # 中間生成した .docx は削除
+        if ($CreatedDocx) {
+            Remove-Item $DocxPath
+        }
+    }
+} finally {
+    $Word.Quit()
+    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($Word) | Out-Null
+}
+
+Write-Host "完了"
