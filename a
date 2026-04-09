@@ -6,80 +6,105 @@ param (
     [string]$DirPath
 )
 
-# ===== 設定 =====
+# ===== Settings =====
 $PandocExe = "C:\path\to\pandoc.exe"
-# ================
+# ====================
 
 if (-not (Test-Path $DirPath -PathType Container)) {
-    Write-Error "ディレクトリが見つかりません: $DirPath"
+    Write-Error "Directory not found: $DirPath"
     exit 1
 }
 
 if (-not (Test-Path $PandocExe)) {
-    Write-Error "pandoc.exe が見つかりません: $PandocExe"
+    Write-Error "pandoc.exe not found: $PandocExe"
     exit 1
 }
 
-# 出力ディレクトリ: 元ディレクトリ名_md
+# Output directory: {source_dir}_md
 $DirPath = $DirPath.TrimEnd('\', '/')
 $OutDir = $DirPath + "_md"
 if (-not (Test-Path $OutDir)) {
     New-Item -ItemType Directory -Path $OutDir | Out-Null
+    Write-Host "[mkdir] Output directory created: $OutDir"
 }
 
-# Word COM オブジェクト初期化
+# Initialize Word COM object
+Write-Host "[init] Starting Word..."
 $Word = New-Object -ComObject Word.Application
 $Word.Visible = $false
+Write-Host "[init] Word started"
 
 try {
-    # .doc と .docx を再帰的に取得
+    # Collect .doc and .docx recursively
     $Files = Get-ChildItem -Path $DirPath -Recurse -Include "*.doc", "*.docx"
+    $Total = $Files.Count
+    Write-Host "[scan] Found $Total file(s)"
+    Write-Host ""
+
+    $Index = 0
+    $SuccessCount = 0
+    $FailCount = 0
 
     foreach ($File in $Files) {
+        $Index++
+        Write-Host "[$Index/$Total] $($File.FullName)"
+
         $DocxPath = $null
         $CreatedDocx = $false
 
         if ($File.Extension -eq ".doc") {
-            # .doc → .docx 変換
+            # .doc -> .docx via Word
             $DocxPath = [System.IO.Path]::ChangeExtension($File.FullName, ".docx")
-            Write-Host "[doc→docx] $($File.FullName)"
+            Write-Host "  -> [doc->docx] Converting via Word..."
 
             $Doc = $Word.Documents.Open($File.FullName)
             # 16 = wdFormatXMLDocument (docx)
             $Doc.SaveAs([ref]$DocxPath, [ref]16)
             $Doc.Close()
             $CreatedDocx = $true
+            Write-Host "  -> [doc->docx] Done: $DocxPath"
         } else {
-            # すでに .docx
             $DocxPath = $File.FullName
+            Write-Host "  -> [skip] Already .docx, no conversion needed"
         }
 
-        # .docx → Markdown (GFM)
-        # 元ディレクトリからの相対パスを保持して出力先を決定
+        # .docx -> Markdown (GFM)
         $RelPath = [System.IO.Path]::GetRelativePath($DirPath, $DocxPath)
         $MdRelPath = [System.IO.Path]::ChangeExtension($RelPath, ".md")
         $MdPath = Join-Path $OutDir $MdRelPath
-        # 出力先サブディレクトリが存在しない場合は作成
+
         $MdDir = Split-Path $MdPath -Parent
         if (-not (Test-Path $MdDir)) {
             New-Item -ItemType Directory -Path $MdDir | Out-Null
         }
-        Write-Host "[docx→md] $DocxPath"
 
+        Write-Host "  -> [docx->md] Converting via pandoc..."
         & $PandocExe $DocxPath -f docx -t gfm -o $MdPath
 
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning "pandoc 変換失敗: $DocxPath"
+            Write-Warning "  -> [error] pandoc conversion failed: $DocxPath"
+            $FailCount++
+        } else {
+            Write-Host "  -> [docx->md] Done: $MdPath"
+            $SuccessCount++
         }
 
-        # 中間生成した .docx は削除
+        # Remove intermediate .docx
         if ($CreatedDocx) {
             Remove-Item $DocxPath
+            Write-Host "  -> [clean] Removed intermediate file: $DocxPath"
         }
+
+        Write-Host ""
     }
 } finally {
+    Write-Host "[exit] Quitting Word..."
     $Word.Quit()
     [System.Runtime.InteropServices.Marshal]::ReleaseComObject($Word) | Out-Null
+    Write-Host "[exit] Word closed"
 }
 
-Write-Host "完了"
+Write-Host ""
+Write-Host "===== Done ====="
+Write-Host "Success: $SuccessCount / Failed: $FailCount / Total: $Total"
+Write-Host "Output: $OutDir"
