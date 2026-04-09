@@ -69,7 +69,7 @@ try {
         }
 
         # .docx -> Markdown (GFM)
-        $RelPath = [System.IO.Path]::GetRelativePath($DirPath, $DocxPath)
+        $RelPath = $DocxPath.Substring($DirPath.Length).TrimStart('\', '/')
         $MdRelPath = [System.IO.Path]::ChangeExtension($RelPath, ".md")
         $MdPath = Join-Path $OutDir $MdRelPath
 
@@ -79,10 +79,11 @@ try {
         }
 
         Write-Host "  -> [docx->md] Converting via pandoc..."
-        & $PandocExe $DocxPath -f docx -t gfm -o $MdPath
+        $PandocOutput = & $PandocExe $DocxPath -f docx -t gfm -o $MdPath 2>&1
 
         if ($LASTEXITCODE -ne 0) {
             Write-Warning "  -> [error] pandoc conversion failed: $DocxPath"
+            Write-Warning "  -> [error] $PandocOutput"
             $FailCount++
         } else {
             Write-Host "  -> [docx->md] Done: $MdPath"
